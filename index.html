@@ -574,6 +574,8 @@
     <div class="header">
         <h1>🔴 Multi-Stream Viewer</h1>
         <div class="header-controls">
+            <span class="stream-counter" id="streamCounter">0 streams</span>
+            <button class="control-btn" onclick="shareCurrentURL()" title="Partager cette URL">🔗 Partager</button>
             <button class="control-btn" onclick="multi.playAllStreams()">▶️ Play All</button>
             <button class="control-btn pause" onclick="multi.pauseAllStreams()">⏸️ Pause All</button>
             <button class="toggle-sidebar" onclick="toggleSidebar()">📋 Panneau</button>
@@ -613,16 +615,83 @@
                 this.sidebarCollapsed = false;
                 this.allPaused = false;
                 this.twitchPlayers = new Map();
-                this.maxStreams = 9; // Limite pour les performances
-                this.retryAttempts = new Map(); // Compteur de tentatives
-                this.streamStatus = new Map(); // Statut des streams
-                this.loadSession();
+                this.maxStreams = 9;
+                this.retryAttempts = new Map();
+                this.streamStatus = new Map();
+                
+                // Charger les streams depuis l'URL au démarrage
+                this.loadFromURL();
+            }
+
+            // Méthode pour obtenir le domaine parent correct
+            getValidParent() {
+                const hostname = window.location.hostname;
+                
+                // Pour le développement local
+                if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '') {
+                    return 'localhost';
+                }
+                
+                // Pour la production, utiliser le vrai domaine
+                return hostname;
+            }
+
+            // Nouvelle méthode pour charger les streams depuis l'URL
+            loadFromURL() {
+                const path = window.location.pathname;
+                const streamNames = path.split('/').filter(segment => segment.length > 0);
+                
+                if (streamNames.length > 0) {
+                    this.showNotification(`🔗 Chargement de ${streamNames.length} stream(s) depuis l'URL`);
+                    
+                    // Charger chaque stream avec un délai pour éviter la surcharge
+                    streamNames.forEach((username, index) => {
+                        setTimeout(() => {
+                            this.addStreamFromURL(username);
+                        }, index * 500);
+                    });
+                } else {
+                    // Si pas de streams dans l'URL, essayer de charger depuis localStorage
+                    this.loadSession();
+                }
+            }
+
+            // Méthode spéciale pour ajouter un stream depuis l'URL
+            async addStreamFromURL(username) {
+                username = username.trim().toLowerCase();
+                
+                if (!this.validateUsername(username)) {
+                    console.log(`Nom d'utilisateur invalide dans l'URL : ${username}`);
+                    return;
+                }
+                
+                if (this.streams.has(username)) {
+                    return;
+                }
+                
+                const id = `stream-${this.counter++}`;
+                this.streams.set(username, { id, username, hidden: false, paused: false });
+                this.streamStatus.set(username, 'loading');
+                this.createStreamElement(username, id);
+                this.updateLayout();
+                this.updateSidebar();
+                
+                setTimeout(() => this.forcePlay(username), 1500);
+            }
+
+            // Nouvelle méthode pour mettre à jour l'URL
+            updateURL() {
+                const streamNames = Array.from(this.streams.keys());
+                const newPath = streamNames.length > 0 ? '/' + streamNames.join('/') : '/';
+                
+                if (window.location.pathname !== newPath) {
+                    window.history.pushState({ streams: streamNames }, '', newPath);
+                }
             }
 
             async addStream(username) {
                 username = username.trim().toLowerCase();
                 
-                // Validation améliorée
                 if (!this.validateUsername(username)) {
                     this.showNotification(`❌ Nom d'utilisateur invalide : ${username}`);
                     return;
@@ -638,7 +707,6 @@
                     return;
                 }
 
-                // Vérifier si le streamer existe
                 const exists = await this.checkStreamerExists(username);
                 if (!exists) {
                     this.showNotification(`❌ Streamer "${username}" introuvable`);
@@ -653,7 +721,9 @@
                 this.updateSidebar();
                 this.showNotification(`✅ Ajouté : ${username}`);
                 
-                // Lancement automatique après un délai
+                // Mettre à jour l'URL
+                this.updateURL();
+                
                 setTimeout(() => this.forcePlay(username), 1500);
                 this.saveSession();
             }
@@ -684,7 +754,7 @@
                 wrapper.className = "stream-wrapper";
                 wrapper.id = id;
                 
-                const parent = window.location.hostname || window.location.host || 'localhost';
+                const parent = this.getValidParent();
                 const src = `https://player.twitch.tv/?channel=${username}&parent=${parent}&muted=false&autoplay=true`;
                 
                 wrapper.innerHTML = `
@@ -696,7 +766,7 @@
                             frameborder="0"
                             allow="autoplay; fullscreen; microphone; camera"
                             sandbox="allow-modals allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox allow-storage-access-by-user-activation"
-                            title="Twitch"
+                            title="Twitch - ${username}"
                             style="width: 100%; height: 100%; border: none;">
                         </iframe>
                         <div class="stream-controls">
@@ -795,8 +865,9 @@
                 
                 const iframe = document.querySelector(`#${data.id} iframe`);
                 if (iframe) {
-                    const parent = window.location.hostname || window.location.host || 'localhost';
-                    const src = `https://player.twitch.tv/?channel=${username}&parent=${parent}&muted=false&autoplay=true&time=0`;
+                    const parent = this.getValidParent();
+                    const timestamp = Date.now();
+                    const src = `https://player.twitch.tv/?channel=${username}&parent=${parent}&muted=false&autoplay=true&time=${timestamp}`;
                     iframe.src = src;
                     
                     setTimeout(() => {
@@ -859,6 +930,9 @@
                 this.updateLayout();
                 this.updateSidebar();
                 this.showNotification(`🗑️ Supprimé : ${username}`);
+                
+                // Mettre à jour l'URL
+                this.updateURL();
                 this.saveSession();
             }
 
@@ -878,12 +952,13 @@
             }
 
             setAudioStream(username) {
-                const parent = window.location.hostname || window.location.host || 'localhost';
+                const parent = this.getValidParent();
                 for (const [u, data] of this.streams.entries()) {
                     const iframe = document.querySelector(`#${data.id} iframe`);
                     if (iframe) {
                         const muted = u !== username;
-                        const src = `https://player.twitch.tv/?channel=${u}&parent=${parent}&muted=${muted}&autoplay=true`;
+                        const timestamp = Date.now();
+                        const src = `https://player.twitch.tv/?channel=${u}&parent=${parent}&muted=${muted}&autoplay=true&time=${timestamp}`;
                         iframe.src = src;
                         
                         setTimeout(() => this.initTwitchPlayer(u, data.id), 800);
@@ -978,6 +1053,11 @@
                     `;
                     list.appendChild(div);
                 }
+                
+                // Mettre à jour le compteur
+                const counter = document.getElementById("streamCounter");
+                const visibleCount = [...this.streams.values()].filter(s => !s.hidden).length;
+                counter.textContent = `${this.streams.size} stream${this.streams.size > 1 ? 's' : ''} ${visibleCount !== this.streams.size ? `(${visibleCount} visible${visibleCount > 1 ? 's' : ''})` : ''}`;
             }
 
             showNotification(msg) {
@@ -1009,27 +1089,29 @@
                     
                     const sessionData = JSON.parse(saved);
                     
-                    // Restaurer les streams
-                    sessionData.streams?.forEach(streamData => {
-                        this.addStream(streamData.username);
-                        if (streamData.hidden) {
-                            setTimeout(() => this.toggleVisibility(streamData.username), 1000);
+                    // Restaurer les streams uniquement si l'URL est vide
+                    if (window.location.pathname === '/' && sessionData.streams?.length > 0) {
+                        sessionData.streams.forEach(streamData => {
+                            setTimeout(() => {
+                                this.addStream(streamData.username);
+                                if (streamData.hidden) {
+                                    setTimeout(() => this.toggleVisibility(streamData.username), 1000);
+                                }
+                            }, 100);
+                        });
+                        
+                        // Restaurer les états
+                        if (sessionData.highlighted) {
+                            setTimeout(() => this.highlightStream(sessionData.highlighted), 1500);
                         }
-                    });
-                    
-                    // Restaurer les états
-                    if (sessionData.highlighted) {
-                        setTimeout(() => this.highlightStream(sessionData.highlighted), 1500);
-                    }
-                    if (sessionData.audioStream) {
-                        setTimeout(() => this.setAudioStream(sessionData.audioStream), 2000);
-                    }
-                    if (sessionData.sidebarCollapsed) {
-                        setTimeout(() => toggleSidebar(), 500);
-                    }
-                    
-                    if (sessionData.streams?.length > 0) {
-                        this.showNotification('📁 Session restaurée');
+                        if (sessionData.audioStream) {
+                            setTimeout(() => this.setAudioStream(sessionData.audioStream), 2000);
+                        }
+                        if (sessionData.sidebarCollapsed) {
+                            setTimeout(() => toggleSidebar(), 500);
+                        }
+                        
+                        this.showNotification('📁 Session restaurée depuis localStorage');
                     }
                 } catch (error) {
                     console.error('Erreur lors du chargement de la session:', error);
@@ -1038,12 +1120,84 @@
 
             clearSession() {
                 localStorage.removeItem('multiStreamSession');
-                this.showNotification('🗑️ Session effacée');
+                this.clearAllStreams();
+                this.showNotification('🗑️ Session et URL effacées');
+            }
+
+            // Nouvelle méthode pour effacer tous les streams
+            clearAllStreams() {
+                const streamNames = Array.from(this.streams.keys());
+                streamNames.forEach(username => {
+                    const data = this.streams.get(username);
+                    if (data) {
+                        document.getElementById(data.id).remove();
+                    }
+                });
+                
+                this.streams.clear();
+                this.twitchPlayers.clear();
+                this.highlighted = null;
+                this.audioStream = null;
+                this.updateLayout();
+                this.updateSidebar();
+                this.updateURL();
+                this.showNotification(`🗑️ Tous les streams supprimés`);
+                this.saveSession();
             }
         }
 
         const multi = new MultiStreamViewer();
-        
+
+        // Gérer les changements d'URL avec le bouton précédent/suivant du navigateur
+        window.addEventListener('popstate', function(event) {
+            // Effacer les streams actuels
+            const currentStreams = Array.from(multi.streams.keys());
+            currentStreams.forEach(username => {
+                const data = multi.streams.get(username);
+                if (data) {
+                    document.getElementById(data.id).remove();
+                }
+            });
+            multi.streams.clear();
+            multi.twitchPlayers.clear();
+            multi.counter = 0;
+            
+            // Recharger depuis la nouvelle URL
+            multi.loadFromURL();
+        });
+
+        // Fonction pour partager l'URL actuelle
+        function shareCurrentURL() {
+            if (navigator.share) {
+                navigator.share({
+                    title: 'Multi-Stream Twitch Viewer',
+                    text: 'Regardez ces streams Twitch ensemble !',
+                    url: window.location.href
+                }).then(() => {
+                    multi.showNotification('🔗 URL partagée !');
+                }).catch(() => {
+                    copyURLToClipboard();
+                });
+            } else {
+                copyURLToClipboard();
+            }
+        }
+
+        function copyURLToClipboard() {
+            navigator.clipboard.writeText(window.location.href).then(() => {
+                multi.showNotification('📋 URL copiée dans le presse-papiers !');
+            }).catch(() => {
+                // Fallback pour les navigateurs plus anciens
+                const textArea = document.createElement('textarea');
+                textArea.value = window.location.href;
+                document.body.appendChild(textArea);
+                textArea.select();
+                document.execCommand('copy');
+                document.body.removeChild(textArea);
+                multi.showNotification('📋 URL copiée !');
+            });
+        }
+
         function toggleSidebar() {
             const sidebar = document.getElementById("sidebar");
             const streamsContainer = document.getElementById("streamsContainer");
