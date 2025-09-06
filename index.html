@@ -457,35 +457,6 @@
             }
         }
         
-        .autoplay-button {
-            position: fixed;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            z-index: 10000;
-            padding: 20px 30px;
-            background: linear-gradient(45deg, #9146ff, #7c3aed);
-            color: white;
-            border: none;
-            border-radius: 15px;
-            font-size: 18px;
-            font-weight: bold;
-            cursor: pointer;
-            box-shadow: 0 10px 30px rgba(145, 70, 255, 0.5);
-            animation: pulse 2s infinite;
-        }
-        
-        @keyframes pulse {
-            0% { transform: translate(-50%, -50%) scale(1); }
-            50% { transform: translate(-50%, -50%) scale(1.05); }
-            100% { transform: translate(-50%, -50%) scale(1); }
-        }
-        
-        .autoplay-button:hover {
-            background: linear-gradient(45deg, #7c3aed, #6d28d9);
-            transform: translate(-50%, -50%) scale(1.1);
-        }
-        
         /* Scrollbar personnalisée */
         .sidebar::-webkit-scrollbar {
             width: 6px;
@@ -583,8 +554,6 @@
                 this.sidebarCollapsed = false;
                 this.allPaused = false;
                 this.twitchPlayers = new Map();
-                this.userInteracted = false;
-                this.autoplayEnabled = false;
             }
 
             addStream(username) {
@@ -603,12 +572,8 @@
                 this.updateSidebar();
                 this.showNotification(`✅ Ajouté : ${username}`);
                 
-                // Activer l'autoplay immédiatement si l'utilisateur a déjà interagi
-                if (!this.autoplayEnabled && !this.userInteracted) {
-                    this.enableAutoplayPrompt();
-                } else if (this.autoplayEnabled) {
-                    setTimeout(() => this.forcePlay(username), 1000);
-                }
+                // Lancer automatiquement la vidéo après un court délai
+                setTimeout(() => this.forcePlay(username), 1500);
             }
 
             createStreamElement(username, id) {
@@ -662,11 +627,10 @@
 
                 iframe.onload = () => {
                     console.log(`Player ${username} chargé`);
-                    if (this.autoplayEnabled) {
-                        setTimeout(() => {
-                            this.attemptAutoplay(iframe, username);
-                        }, 1000);
-                    }
+                    // Toujours tenter l'autoplay
+                    setTimeout(() => {
+                        this.attemptAutoplay(iframe, username);
+                    }, 1000);
                 };
 
                 iframe.onerror = () => {
@@ -707,9 +671,8 @@
                     
                     setTimeout(() => {
                         this.initTwitchPlayer(username, data.id);
-                        if (this.autoplayEnabled) {
-                            setTimeout(() => this.attemptAutoplay(iframe, username), 1500);
-                        }
+                        // Toujours tenter l'autoplay
+                        setTimeout(() => this.attemptAutoplay(iframe, username), 1500);
                     }, 500);
                 }
                 
@@ -741,37 +704,6 @@
             openInTwitch(username) {
                 window.open(`https://www.twitch.tv/${username}`, '_blank');
                 this.showNotification(`🔗 Ouverture de ${username} sur Twitch`);
-            }
-
-            enableAutoplayPrompt() {
-                if (this.userInteracted) return;
-                
-                const interactionBtn = document.createElement('button');
-                interactionBtn.className = 'autoplay-button';
-                interactionBtn.textContent = '🎮 Activer la lecture automatique';
-                
-                interactionBtn.onclick = () => {
-                    this.userInteracted = true;
-                    this.autoplayEnabled = true;
-                    interactionBtn.remove();
-                    
-                    // Lancer tous les streams existants
-                    this.playAllStreams();
-                    this.showNotification('✅ Lecture automatique activée !');
-                };
-                
-                document.body.appendChild(interactionBtn);
-                
-                // Supprimer automatiquement après 15 secondes
-                setTimeout(() => {
-                    if (interactionBtn.parentNode) {
-                        interactionBtn.remove();
-                    }
-                }, 15000);
-            }
-
-            enableAutoplay() {
-                this.enableAutoplayPrompt();
             }
 
             removeStream(username) {
@@ -815,7 +747,8 @@
                         
                         setTimeout(() => {
                             this.initTwitchPlayer(u, data.id);
-                            if (this.autoplayEnabled && !muted) {
+                            // Toujours tenter l'autoplay pour le stream avec audio
+                            if (!muted) {
                                 setTimeout(() => this.attemptAutoplay(iframe, u), 1000);
                             }
                         }, 500);
@@ -843,9 +776,6 @@
             }
 
             playAllStreams() {
-                this.userInteracted = true;
-                this.autoplayEnabled = true;
-                
                 for (const [username, data] of this.streams.entries()) {
                     if (!data.hidden) {
                         this.forcePlay(username);
@@ -909,6 +839,76 @@
                 }
             }
 
+            showNotification(msg) {
+                const notif = document.getElementById("notification");
+                notif.textContent = msg;
+                notif.style.display = "block";
+                setTimeout(() => notif.style.display = "none", 3000);
+            }
+        }
+
+        const multi = new MultiStreamViewer();
+        
+        function toggleSidebar() {
+            const sidebar = document.getElementById("sidebar");
+            const streamsContainer = document.getElementById("streamsContainer");
+            const toggleBtn = sidebar.querySelector(".sidebar-toggle");
+            let externalToggle = document.getElementById("externalToggle");
+            
+            multi.sidebarCollapsed = !multi.sidebarCollapsed;
+            
+            if (multi.sidebarCollapsed) {
+                sidebar.classList.add("collapsed");
+                streamsContainer.classList.add("sidebar-collapsed");
+                toggleBtn.innerHTML = "▶";
+                toggleBtn.title = "Ouvrir le panneau";
+                
+                if (!externalToggle) {
+                    externalToggle = document.createElement("button");
+                    externalToggle.id = "externalToggle";
+                    externalToggle.className = "sidebar-toggle-external";
+                    externalToggle.innerHTML = "◀";
+                    externalToggle.title = "Ouvrir le panneau";
+                    externalToggle.onclick = toggleSidebar;
+                    document.body.appendChild(externalToggle);
+                }
+                
+                setTimeout(() => {
+                    externalToggle.classList.add("visible");
+                }, 300);
+                
+            } else {
+                sidebar.classList.remove("collapsed");
+                streamsContainer.classList.remove("sidebar-collapsed");
+                toggleBtn.innerHTML = "◀";
+                toggleBtn.title = "Fermer le panneau";
+                
+                if (externalToggle) {
+                    externalToggle.classList.remove("visible");
+                }
+            }
+        }
+        
+        function addStreamFromInput() {
+            const input = document.getElementById("streamInput");
+            if (input.value.trim()) {
+                multi.addStream(input.value);
+                input.value = "";
+            }
+        }
+
+        function handleKeyPress(event) {
+            if (event.key === 'Enter') {
+                addStreamFromInput();
+            }
+        }
+
+        window.addEventListener('load', function() {
+            document.getElementById("streamInput").focus();
+        });
+    </script>
+</body>
+</html>
             showNotification(msg) {
                 const notif = document.getElementById("notification");
                 notif.textContent = msg;
