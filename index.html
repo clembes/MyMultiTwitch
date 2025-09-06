@@ -616,6 +616,7 @@
                 this.maxStreams = 9; // Limite pour les performances
                 this.retryAttempts = new Map(); // Compteur de tentatives
                 this.streamStatus = new Map(); // Statut des streams
+                this.loadSession();
             }
 
             async addStream(username) {
@@ -654,6 +655,7 @@
                 
                 // Lancement automatique après un délai
                 setTimeout(() => this.forcePlay(username), 1500);
+                this.saveSession();
             }
 
             validateUsername(username) {
@@ -857,6 +859,7 @@
                 this.updateLayout();
                 this.updateSidebar();
                 this.showNotification(`🗑️ Supprimé : ${username}`);
+                this.saveSession();
             }
 
             highlightStream(username) {
@@ -982,6 +985,60 @@
                 notif.textContent = msg;
                 notif.style.display = "block";
                 setTimeout(() => notif.style.display = "none", 3000);
+            }
+
+            saveSession() {
+                const sessionData = {
+                    streams: Array.from(this.streams.entries()).map(([username, data]) => ({
+                        username,
+                        hidden: data.hidden,
+                        paused: data.paused
+                    })),
+                    highlighted: this.highlighted,
+                    audioStream: this.audioStream,
+                    sidebarCollapsed: this.sidebarCollapsed
+                };
+                
+                localStorage.setItem('multiStreamSession', JSON.stringify(sessionData));
+            }
+
+            loadSession() {
+                try {
+                    const saved = localStorage.getItem('multiStreamSession');
+                    if (!saved) return;
+                    
+                    const sessionData = JSON.parse(saved);
+                    
+                    // Restaurer les streams
+                    sessionData.streams?.forEach(streamData => {
+                        this.addStream(streamData.username);
+                        if (streamData.hidden) {
+                            setTimeout(() => this.toggleVisibility(streamData.username), 1000);
+                        }
+                    });
+                    
+                    // Restaurer les états
+                    if (sessionData.highlighted) {
+                        setTimeout(() => this.highlightStream(sessionData.highlighted), 1500);
+                    }
+                    if (sessionData.audioStream) {
+                        setTimeout(() => this.setAudioStream(sessionData.audioStream), 2000);
+                    }
+                    if (sessionData.sidebarCollapsed) {
+                        setTimeout(() => toggleSidebar(), 500);
+                    }
+                    
+                    if (sessionData.streams?.length > 0) {
+                        this.showNotification('📁 Session restaurée');
+                    }
+                } catch (error) {
+                    console.error('Erreur lors du chargement de la session:', error);
+                }
+            }
+
+            clearSession() {
+                localStorage.removeItem('multiStreamSession');
+                this.showNotification('🗑️ Session effacée');
             }
         }
 
