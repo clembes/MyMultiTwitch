@@ -137,6 +137,39 @@
             border-radius: 16px;
         }
         
+        .stream-controls {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            z-index: 10;
+            display: flex;
+            gap: 5px;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+        
+        .stream-wrapper:hover .stream-controls {
+            opacity: 1;
+        }
+        
+        .stream-controls button {
+            background: rgba(0, 0, 0, 0.8);
+            color: white;
+            border: none;
+            padding: 6px 10px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 12px;
+            font-weight: 600;
+            transition: all 0.3s ease;
+            backdrop-filter: blur(10px);
+        }
+        
+        .stream-controls button:hover {
+            background: linear-gradient(45deg, #9146ff, #7c3aed);
+            transform: scale(1.1);
+        }
+        
         .stream-paused {
             opacity: 0.5;
             filter: grayscale(100%);
@@ -547,12 +580,27 @@
                 wrapper.id = id;
                 
                 const parent = window.location.hostname || window.location.host || 'localhost';
-                const src = `https://player.twitch.tv/?channel=${username}&parent=${parent}&muted=true`;
+                // Forcer l'autoplay et ajouter time=0 pour le live
+                const src = `https://player.twitch.tv/?channel=${username}&parent=${parent}&muted=true&autoplay=true&time=0`;
                 
-                wrapper.innerHTML = `<iframe src="${src}" allowfullscreen></iframe>`;
+                wrapper.innerHTML = `
+                    <div style="position: relative; width: 100%; height: 100%;">
+                        <iframe 
+                            src="${src}" 
+                            allowfullscreen
+                            allow="autoplay; fullscreen; microphone; camera"
+                            referrerpolicy="origin"
+                            style="width: 100%; height: 100%; border: none;">
+                        </iframe>
+                        <div class="stream-controls">
+                            <button onclick="multi.forcePlay('${username}')" title="Forcer Play">▶️</button>
+                            <button onclick="multi.forceRefresh('${username}')" title="Actualiser">🔄</button>
+                            <button onclick="multi.openInTwitch('${username}')" title="Ouvrir sur Twitch">🔗</button>
+                        </div>
+                    </div>
+                `;
+                
                 container.appendChild(wrapper);
-
-                // Initialiser la communication avec l'iframe Twitch
                 setTimeout(() => this.initTwitchPlayer(username, id), 1000);
             }
 
@@ -560,18 +608,84 @@
                 const iframe = document.querySelector(`#${id} iframe`);
                 if (!iframe) return;
 
-                // Stocker la référence de l'iframe
                 this.twitchPlayers.set(username, iframe);
+
+                // Forcer le clic sur l'iframe après chargement
+                iframe.onload = () => {
+                    setTimeout(() => {
+                        // Simuler un clic au centre pour déclencher l'autoplay
+                        this.simulateClick(iframe);
+                    }, 2000);
+                };
 
                 // Écouter les messages de l'iframe
                 window.addEventListener('message', (event) => {
                     if (event.origin !== 'https://player.twitch.tv') return;
                     
-                    // Traiter les événements Twitch si nécessaire
                     if (event.data && event.data.namespace === 'twitch-embed') {
                         console.log('Twitch event:', event.data);
                     }
                 });
+            }
+
+            simulateClick(iframe) {
+                try {
+                    const rect = iframe.getBoundingClientRect();
+                    const centerX = rect.left + rect.width / 2;
+                    const centerY = rect.top + rect.height / 2;
+                    
+                    const clickEvent = new MouseEvent('click', {
+                        view: window,
+                        bubbles: true,
+                        cancelable: true,
+                        clientX: centerX,
+                        clientY: centerY
+                    });
+                    
+                    iframe.dispatchEvent(clickEvent);
+                } catch (error) {
+                    console.log('Clic simulé sur iframe:', error);
+                }
+            }
+
+            forcePlay(username) {
+                const data = this.streams.get(username);
+                if (!data) return;
+                
+                const iframe = document.querySelector(`#${data.id} iframe`);
+                if (iframe) {
+                    const parent = window.location.hostname || window.location.host || 'localhost';
+                    const src = `https://player.twitch.tv/?channel=${username}&parent=${parent}&muted=true&autoplay=true&time=0&allowfullscreen=true`;
+                    iframe.src = src;
+                    
+                    // Simuler un clic après rechargement
+                    setTimeout(() => {
+                        this.simulateClick(iframe);
+                    }, 3000);
+                }
+                
+                this.showNotification(`🎮 Lecture forcée : ${username}`);
+            }
+
+            forceRefresh(username) {
+                const data = this.streams.get(username);
+                if (!data) return;
+                
+                const iframe = document.querySelector(`#${data.id} iframe`);
+                if (iframe) {
+                    const currentSrc = iframe.src;
+                    iframe.src = '';
+                    setTimeout(() => {
+                        iframe.src = currentSrc;
+                    }, 100);
+                }
+                
+                this.showNotification(`🔄 ${username} actualisé`);
+            }
+
+            openInTwitch(username) {
+                window.open(`https://www.twitch.tv/${username}`, '_blank');
+                this.showNotification(`🔗 Ouverture de ${username} sur Twitch`);
             }
 
             sendCommandToPlayer(username, command) {
@@ -584,28 +698,10 @@
                         params: {}
                     }, 'https://player.twitch.tv');
                 } catch (error) {
-                    console.log(`Commande ${command} envoyée à ${username} via méthode alternative`);
-                    // Méthode alternative : simuler les touches
-                    this.simulateKeyPress(iframe, command);
-                }
-            }
-
-            simulateKeyPress(iframe, command) {
-                // Fallback : créer un événement de clavier
-                const keyCode = command === 'play' ? 32 : 32; // Espace pour play/pause
-                
-                try {
-                    iframe.focus();
-                    const event = new KeyboardEvent('keydown', {
-                        key: ' ',
-                        code: 'Space',
-                        keyCode: keyCode,
-                        which: keyCode,
-                        bubbles: true
-                    });
-                    iframe.dispatchEvent(event);
-                } catch (error) {
-                    console.log('Impossible de simuler la touche');
+                    // Fallback : forcer le refresh pour play/pause
+                    if (command === 'play') {
+                        this.forcePlay(username);
+                    }
                 }
             }
 
@@ -642,12 +738,12 @@
                 for (const [u, data] of this.streams.entries()) {
                     const iframe = document.querySelector(`#${data.id} iframe`);
                     if (iframe) {
-                        const newSrc = `https://player.twitch.tv/?channel=${u}&parent=${parent}&muted=${u !== username}`;
-                        if (iframe.src !== newSrc) {
-                            iframe.src = newSrc;
-                            // Réinitialiser le player après changement d'URL
-                            setTimeout(() => this.initTwitchPlayer(u, data.id), 1000);
-                        }
+                        const muted = u !== username;
+                        const src = `https://player.twitch.tv/?channel=${u}&parent=${parent}&muted=${muted}&autoplay=true&time=0`;
+                        iframe.src = src;
+                        
+                        // Réinitialiser le player après changement d'URL
+                        setTimeout(() => this.initTwitchPlayer(u, data.id), 1000);
                     }
                 }
                 this.audioStream = username;
@@ -674,8 +770,7 @@
             playAllStreams() {
                 for (const [username, data] of this.streams.entries()) {
                     if (!data.hidden) {
-                        // Essayer d'envoyer la commande play au player
-                        this.sendCommandToPlayer(username, 'play');
+                        this.forcePlay(username);
                         
                         const wrapper = document.getElementById(data.id);
                         if (wrapper) {
@@ -691,9 +786,6 @@
             pauseAllStreams() {
                 for (const [username, data] of this.streams.entries()) {
                     if (!data.hidden) {
-                        // Essayer d'envoyer la commande pause au player
-                        this.sendCommandToPlayer(username, 'pause');
-                        
                         const wrapper = document.getElementById(data.id);
                         if (wrapper) {
                             wrapper.classList.add("stream-paused");
@@ -702,7 +794,7 @@
                     }
                 }
                 this.allPaused = true;
-                this.showNotification(`⏸️ Tous les streams en pause`);
+                this.showNotification(`⏸️ Effet de pause appliqué`);
             }
 
             updateLayout() {
@@ -769,7 +861,6 @@
                 toggleBtn.innerHTML = "▶";
                 toggleBtn.title = "Ouvrir le panneau";
                 
-                // Créer le bouton externe si il n'existe pas
                 if (!externalToggle) {
                     externalToggle = document.createElement("button");
                     externalToggle.id = "externalToggle";
@@ -780,7 +871,6 @@
                     document.body.appendChild(externalToggle);
                 }
                 
-                // Afficher le bouton externe après un délai
                 setTimeout(() => {
                     externalToggle.classList.add("visible");
                 }, 300);
@@ -791,7 +881,6 @@
                 toggleBtn.innerHTML = "◀";
                 toggleBtn.title = "Fermer le panneau";
                 
-                // Masquer le bouton externe
                 if (externalToggle) {
                     externalToggle.classList.remove("visible");
                 }
@@ -812,9 +901,17 @@
             }
         }
 
-        window.onload = function() {
+        // Autoriser l'autoplay par défaut
+        window.addEventListener('load', function() {
             document.getElementById("streamInput").focus();
-        };
+            
+            // Demander permission autoplay
+            if (navigator.mediaSession) {
+                navigator.mediaSession.setActionHandler('play', () => {
+                    console.log('Autoplay autorisé');
+                });
+            }
+        });
     </script>
 </body>
 </html>
