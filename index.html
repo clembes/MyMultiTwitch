@@ -457,6 +457,35 @@
             }
         }
         
+        .autoplay-button {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            z-index: 10000;
+            padding: 20px 30px;
+            background: linear-gradient(45deg, #9146ff, #7c3aed);
+            color: white;
+            border: none;
+            border-radius: 15px;
+            font-size: 18px;
+            font-weight: bold;
+            cursor: pointer;
+            box-shadow: 0 10px 30px rgba(145, 70, 255, 0.5);
+            animation: pulse 2s infinite;
+        }
+        
+        @keyframes pulse {
+            0% { transform: translate(-50%, -50%) scale(1); }
+            50% { transform: translate(-50%, -50%) scale(1.05); }
+            100% { transform: translate(-50%, -50%) scale(1); }
+        }
+        
+        .autoplay-button:hover {
+            background: linear-gradient(45deg, #7c3aed, #6d28d9);
+            transform: translate(-50%, -50%) scale(1.1);
+        }
+        
         /* Scrollbar personnalisée */
         .sidebar::-webkit-scrollbar {
             width: 6px;
@@ -571,6 +600,11 @@
                 this.updateLayout();
                 this.updateSidebar();
                 this.showNotification(`✅ Ajouté : ${username}`);
+                
+                // Afficher le bouton d'autoplay si c'est le premier stream
+                if (this.streams.size === 1) {
+                    setTimeout(() => this.enableAutoplay(), 2000);
+                }
             }
 
             createStreamElement(username, id) {
@@ -580,16 +614,18 @@
                 wrapper.id = id;
                 
                 const parent = window.location.hostname || window.location.host || 'localhost';
-                // Forcer l'autoplay et ajouter time=0 pour le live
-                const src = `https://player.twitch.tv/?channel=${username}&parent=${parent}&muted=true&autoplay=true&time=0`;
+                const src = `https://player.twitch.tv/?channel=${username}&parent=${parent}&muted=false&autoplay=true`;
                 
                 wrapper.innerHTML = `
                     <div style="position: relative; width: 100%; height: 100%;">
                         <iframe 
                             src="${src}" 
                             allowfullscreen
+                            scrolling="no"
+                            frameborder="0"
                             allow="autoplay; fullscreen; microphone; camera"
-                            referrerpolicy="origin"
+                            sandbox="allow-modals allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox allow-storage-access-by-user-activation"
+                            title="Twitch"
                             style="width: 100%; height: 100%; border: none;">
                         </iframe>
                         <div class="stream-controls">
@@ -601,7 +637,7 @@
                 `;
                 
                 container.appendChild(wrapper);
-                setTimeout(() => this.initTwitchPlayer(username, id), 1000);
+                setTimeout(() => this.initTwitchPlayer(username, id), 500);
             }
 
             initTwitchPlayer(username, id) {
@@ -610,41 +646,36 @@
 
                 this.twitchPlayers.set(username, iframe);
 
-                // Forcer le clic sur l'iframe après chargement
                 iframe.onload = () => {
+                    console.log(`Player ${username} chargé`);
                     setTimeout(() => {
-                        // Simuler un clic au centre pour déclencher l'autoplay
-                        this.simulateClick(iframe);
-                    }, 2000);
+                        this.attemptAutoplay(iframe, username);
+                    }, 1500);
                 };
 
-                // Écouter les messages de l'iframe
-                window.addEventListener('message', (event) => {
-                    if (event.origin !== 'https://player.twitch.tv') return;
-                    
-                    if (event.data && event.data.namespace === 'twitch-embed') {
-                        console.log('Twitch event:', event.data);
-                    }
-                });
+                iframe.onerror = () => {
+                    console.log(`Erreur de chargement pour ${username}`);
+                    this.showNotification(`❌ Erreur de chargement : ${username}`);
+                };
             }
 
-            simulateClick(iframe) {
+            attemptAutoplay(iframe, username) {
                 try {
                     const rect = iframe.getBoundingClientRect();
-                    const centerX = rect.left + rect.width / 2;
-                    const centerY = rect.top + rect.height / 2;
-                    
-                    const clickEvent = new MouseEvent('click', {
-                        view: window,
-                        bubbles: true,
-                        cancelable: true,
-                        clientX: centerX,
-                        clientY: centerY
-                    });
-                    
-                    iframe.dispatchEvent(clickEvent);
+                    if (rect.width > 0 && rect.height > 0) {
+                        const clickEvent = new MouseEvent('click', {
+                            view: window,
+                            bubbles: true,
+                            cancelable: true,
+                            clientX: rect.left + rect.width / 2,
+                            clientY: rect.top + rect.height / 2
+                        });
+                        
+                        iframe.dispatchEvent(clickEvent);
+                        console.log(`Tentative d'autoplay pour ${username}`);
+                    }
                 } catch (error) {
-                    console.log('Clic simulé sur iframe:', error);
+                    console.log(`Autoplay failed for ${username}:`, error);
                 }
             }
 
@@ -655,13 +686,12 @@
                 const iframe = document.querySelector(`#${data.id} iframe`);
                 if (iframe) {
                     const parent = window.location.hostname || window.location.host || 'localhost';
-                    const src = `https://player.twitch.tv/?channel=${username}&parent=${parent}&muted=true&autoplay=true&time=0&allowfullscreen=true`;
+                    const src = `https://player.twitch.tv/?channel=${username}&parent=${parent}&muted=false&autoplay=true&time=0`;
                     iframe.src = src;
                     
-                    // Simuler un clic après rechargement
                     setTimeout(() => {
-                        this.simulateClick(iframe);
-                    }, 3000);
+                        this.initTwitchPlayer(username, data.id);
+                    }, 1000);
                 }
                 
                 this.showNotification(`🎮 Lecture forcée : ${username}`);
@@ -688,21 +718,24 @@
                 this.showNotification(`🔗 Ouverture de ${username} sur Twitch`);
             }
 
-            sendCommandToPlayer(username, command) {
-                const iframe = this.twitchPlayers.get(username);
-                if (!iframe || !iframe.contentWindow) return;
-
-                try {
-                    iframe.contentWindow.postMessage({
-                        eventName: command,
-                        params: {}
-                    }, 'https://player.twitch.tv');
-                } catch (error) {
-                    // Fallback : forcer le refresh pour play/pause
-                    if (command === 'play') {
-                        this.forcePlay(username);
+            enableAutoplay() {
+                const interactionBtn = document.createElement('button');
+                interactionBtn.className = 'autoplay-button';
+                interactionBtn.textContent = '🎮 Activer l\'autoplay - Cliquez ici';
+                
+                interactionBtn.onclick = () => {
+                    interactionBtn.remove();
+                    this.playAllStreams();
+                    this.showNotification('✅ Autoplay activé !');
+                };
+                
+                document.body.appendChild(interactionBtn);
+                
+                setTimeout(() => {
+                    if (interactionBtn.parentNode) {
+                        interactionBtn.remove();
                     }
-                }
+                }, 10000);
             }
 
             removeStream(username) {
@@ -739,11 +772,10 @@
                     const iframe = document.querySelector(`#${data.id} iframe`);
                     if (iframe) {
                         const muted = u !== username;
-                        const src = `https://player.twitch.tv/?channel=${u}&parent=${parent}&muted=${muted}&autoplay=true&time=0`;
+                        const src = `https://player.twitch.tv/?channel=${u}&parent=${parent}&muted=${muted}&autoplay=true`;
                         iframe.src = src;
                         
-                        // Réinitialiser le player après changement d'URL
-                        setTimeout(() => this.initTwitchPlayer(u, data.id), 1000);
+                        setTimeout(() => this.initTwitchPlayer(u, data.id), 800);
                     }
                 }
                 this.audioStream = username;
@@ -901,16 +933,8 @@
             }
         }
 
-        // Autoriser l'autoplay par défaut
         window.addEventListener('load', function() {
             document.getElementById("streamInput").focus();
-            
-            // Demander permission autoplay
-            if (navigator.mediaSession) {
-                navigator.mediaSession.setActionHandler('play', () => {
-                    console.log('Autoplay autorisé');
-                });
-            }
         });
     </script>
 </body>
