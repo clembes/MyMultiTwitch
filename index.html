@@ -41,6 +41,12 @@
             text-shadow: 0 2px 10px rgba(145, 70, 255, 0.3);
         }
         
+        .header-controls {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+        
         .toggle-sidebar {
             background: linear-gradient(45deg, #9146ff, #7c3aed);
             border: none;
@@ -58,6 +64,35 @@
             background: linear-gradient(45deg, #7c3aed, #6d28d9);
             transform: translateY(-2px);
             box-shadow: 0 6px 20px rgba(145, 70, 255, 0.4);
+        }
+        
+        .control-btn {
+            background: linear-gradient(45deg, #16a085, #1abc9c);
+            border: none;
+            color: #fff;
+            padding: 10px 15px;
+            border-radius: 12px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 600;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 15px rgba(22, 160, 133, 0.3);
+        }
+        
+        .control-btn:hover {
+            background: linear-gradient(45deg, #138d75, #17a589);
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(22, 160, 133, 0.4);
+        }
+        
+        .control-btn.pause {
+            background: linear-gradient(45deg, #e74c3c, #c0392b);
+            box-shadow: 0 4px 15px rgba(231, 76, 60, 0.3);
+        }
+        
+        .control-btn.pause:hover {
+            background: linear-gradient(45deg, #c0392b, #a93226);
+            box-shadow: 0 6px 20px rgba(231, 76, 60, 0.4);
         }
         
         .main {
@@ -100,6 +135,11 @@
             height: 100%; 
             border: none; 
             border-radius: 16px;
+        }
+        
+        .stream-paused {
+            opacity: 0.5;
+            filter: grayscale(100%);
         }
         
         .highlighted {
@@ -230,6 +270,47 @@
             gap: 10px;
         }
         
+        .global-controls {
+            display: flex;
+            gap: 5px;
+            margin-bottom: 10px;
+        }
+        
+        .global-controls button {
+            flex: 1;
+            padding: 8px 12px;
+            font-size: 12px;
+            font-weight: 600;
+            border-radius: 8px;
+            border: none;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        
+        .play-all {
+            background: linear-gradient(45deg, #16a085, #1abc9c);
+            color: white;
+            box-shadow: 0 3px 10px rgba(22, 160, 133, 0.3);
+        }
+        
+        .play-all:hover {
+            background: linear-gradient(45deg, #138d75, #17a589);
+            transform: translateY(-1px);
+            box-shadow: 0 4px 15px rgba(22, 160, 133, 0.4);
+        }
+        
+        .pause-all {
+            background: linear-gradient(45deg, #e74c3c, #c0392b);
+            color: white;
+            box-shadow: 0 3px 10px rgba(231, 76, 60, 0.3);
+        }
+        
+        .pause-all:hover {
+            background: linear-gradient(45deg, #c0392b, #a93226);
+            transform: translateY(-1px);
+            box-shadow: 0 4px 15px rgba(231, 76, 60, 0.4);
+        }
+        
         .sidebar-controls input {
             padding: 12px 16px;
             background: rgba(14, 14, 16, 0.8);
@@ -269,61 +350,6 @@
             background: linear-gradient(45deg, #7c3aed, #6d28d9);
             transform: translateY(-2px);
             box-shadow: 0 6px 20px rgba(145, 70, 255, 0.4);
-        }
-        
-        /* Nouveaux styles pour les boutons généraux */
-        .general-controls {
-            margin-bottom: 20px;
-            padding-bottom: 15px;
-            border-bottom: 1px solid rgba(145, 70, 255, 0.3);
-            display: flex;
-            flex-direction: column;
-            gap: 8px;
-        }
-        
-        .general-controls h4 {
-            margin: 0 0 10px 0;
-            color: #c77dff;
-            font-size: 14px;
-            font-weight: 600;
-            text-align: center;
-        }
-        
-        .control-buttons {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 8px;
-        }
-        
-        .btn-control {
-            padding: 10px 12px;
-            background: rgba(70, 70, 105, 0.8);
-            border: none;
-            color: #fff;
-            cursor: pointer;
-            border-radius: 10px;
-            font-weight: 500;
-            font-size: 13px;
-            transition: all 0.3s ease;
-            backdrop-filter: blur(5px);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 5px;
-        }
-        
-        .btn-control:hover {
-            background: linear-gradient(45deg, #9146ff, #7c3aed);
-            transform: translateY(-1px);
-            box-shadow: 0 4px 15px rgba(145, 70, 255, 0.3);
-        }
-        
-        .btn-control.active {
-            background: linear-gradient(45deg, #dc3545, #c82333);
-        }
-        
-        .btn-control.active:hover {
-            background: linear-gradient(45deg, #c82333, #bd2130);
         }
         
         .stream-item {
@@ -455,7 +481,11 @@
 <body>
     <div class="header">
         <h1>🔴 Multi-Stream Viewer</h1>
-        <button class="toggle-sidebar" onclick="toggleSidebar()">📋 Panneau</button>
+        <div class="header-controls">
+            <button class="control-btn" onclick="multi.playAllStreams()">▶️ Play All</button>
+            <button class="control-btn pause" onclick="multi.pauseAllStreams()">⏸️ Pause All</button>
+            <button class="toggle-sidebar" onclick="toggleSidebar()">📋 Panneau</button>
+        </div>
     </div>
 
     <div class="main">
@@ -466,18 +496,11 @@
                 <button class="sidebar-toggle" onclick="toggleSidebar()" title="Replier/Déplier">◀</button>
             </div>
             <div class="sidebar-content">
-                <div class="general-controls">
-                    <h4>🎬 Contrôles généraux</h4>
-                    <div class="control-buttons">
-                        <button class="btn-control" onclick="multi.pauseAllStreams()" id="pauseBtn">
-                            ⏸️ Pause
-                        </button>
-                        <button class="btn-control" onclick="multi.playAllStreams()" id="playBtn">
-                            ▶️ Play
-                        </button>
-                    </div>
-                </div>
                 <div class="sidebar-controls">
+                    <div class="global-controls">
+                        <button class="play-all" onclick="multi.playAllStreams()">▶️ Play All</button>
+                        <button class="pause-all" onclick="multi.pauseAllStreams()">⏸️ Pause All</button>
+                    </div>
                     <input type="text" id="streamInput" placeholder="Nom du streamer..." onkeypress="handleKeyPress(event)">
                     <button class="btn" onclick="addStreamFromInput()">Ajouter</button>
                 </div>
@@ -509,7 +532,7 @@
                 }
 
                 const id = `stream-${this.counter++}`;
-                this.streams.set(username, { id, username, hidden: false, paused: this.allPaused });
+                this.streams.set(username, { id, username, hidden: false, paused: false });
                 this.createStreamElement(username, id);
                 this.updateLayout();
                 this.updateSidebar();
@@ -523,8 +546,7 @@
                 wrapper.id = id;
                 
                 const parent = window.location.hostname || window.location.host || 'localhost';
-                const autoplay = this.allPaused ? 'false' : 'true';
-                const src = `https://player.twitch.tv/?channel=${username}&parent=${parent}&muted=true&autoplay=${autoplay}`;
+                const src = `https://player.twitch.tv/?channel=${username}&parent=${parent}&muted=true`;
                 
                 wrapper.innerHTML = `<iframe src="${src}" allowfullscreen></iframe>`;
                 container.appendChild(wrapper);
@@ -562,8 +584,7 @@
                 for (const [u, data] of this.streams.entries()) {
                     const iframe = document.querySelector(`#${data.id} iframe`);
                     if (iframe) {
-                        const autoplay = data.paused ? 'false' : 'true';
-                        iframe.src = `https://player.twitch.tv/?channel=${u}&parent=${parent}&muted=${u !== username}&autoplay=${autoplay}`;
+                        iframe.src = `https://player.twitch.tv/?channel=${u}&parent=${parent}&muted=${u !== username}`;
                     }
                 }
                 this.audioStream = username;
@@ -587,57 +608,34 @@
                 this.updateLayout();
             }
 
-            pauseAllStreams() {
-                if (this.streams.size === 0) {
-                    this.showNotification("⚠️ Aucun stream à contrôler");
-                    return;
-                }
-
-                const parent = window.location.hostname || window.location.host || 'localhost';
-                for (const [username, data] of this.streams.entries()) {
-                    const iframe = document.querySelector(`#${data.id} iframe`);
-                    if (iframe) {
-                        const muted = this.audioStream !== username;
-                        iframe.src = `https://player.twitch.tv/?channel=${username}&parent=${parent}&muted=${muted}&autoplay=false`;
-                        data.paused = true;
-                    }
-                }
-                this.allPaused = true;
-                this.updateControlButtons();
-                this.showNotification("⏸️ Tous les streams en pause");
-            }
-
             playAllStreams() {
-                if (this.streams.size === 0) {
-                    this.showNotification("⚠️ Aucun stream à contrôler");
-                    return;
-                }
-
                 const parent = window.location.hostname || window.location.host || 'localhost';
                 for (const [username, data] of this.streams.entries()) {
+                    const wrapper = document.getElementById(data.id);
                     const iframe = document.querySelector(`#${data.id} iframe`);
-                    if (iframe) {
-                        const muted = this.audioStream !== username;
-                        iframe.src = `https://player.twitch.tv/?channel=${username}&parent=${parent}&muted=${muted}&autoplay=true`;
+                    if (iframe && wrapper) {
+                        const isMuted = this.audioStream !== username;
+                        iframe.src = `https://player.twitch.tv/?channel=${username}&parent=${parent}&muted=${isMuted}`;
+                        wrapper.classList.remove("stream-paused");
                         data.paused = false;
                     }
                 }
                 this.allPaused = false;
-                this.updateControlButtons();
-                this.showNotification("▶️ Tous les streams en lecture");
+                this.showNotification(`▶️ Tous les streams en lecture`);
             }
 
-            updateControlButtons() {
-                const pauseBtn = document.getElementById('pauseBtn');
-                const playBtn = document.getElementById('playBtn');
-                
-                if (this.allPaused) {
-                    pauseBtn.classList.add('active');
-                    playBtn.classList.remove('active');
-                } else {
-                    pauseBtn.classList.remove('active');
-                    playBtn.classList.add('active');
+            pauseAllStreams() {
+                for (const [username, data] of this.streams.entries()) {
+                    const wrapper = document.getElementById(data.id);
+                    const iframe = document.querySelector(`#${data.id} iframe`);
+                    if (iframe && wrapper) {
+                        iframe.src = 'about:blank';
+                        wrapper.classList.add("stream-paused");
+                        data.paused = true;
+                    }
                 }
+                this.allPaused = true;
+                this.showNotification(`⏸️ Tous les streams en pause`);
             }
 
             updateLayout() {
@@ -749,7 +747,7 @@
 
         window.onload = function() {
             document.getElementById("streamInput").focus();
-            multi.updateControlButtons();
+            
         };
     </script>
 </body>
