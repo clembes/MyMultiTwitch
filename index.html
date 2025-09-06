@@ -520,6 +520,7 @@
                 this.counter = 0;
                 this.sidebarCollapsed = false;
                 this.allPaused = false;
+                this.twitchPlayers = new Map();
             }
 
             addStream(username) {
@@ -550,6 +551,62 @@
                 
                 wrapper.innerHTML = `<iframe src="${src}" allowfullscreen></iframe>`;
                 container.appendChild(wrapper);
+
+                // Initialiser la communication avec l'iframe Twitch
+                setTimeout(() => this.initTwitchPlayer(username, id), 1000);
+            }
+
+            initTwitchPlayer(username, id) {
+                const iframe = document.querySelector(`#${id} iframe`);
+                if (!iframe) return;
+
+                // Stocker la référence de l'iframe
+                this.twitchPlayers.set(username, iframe);
+
+                // Écouter les messages de l'iframe
+                window.addEventListener('message', (event) => {
+                    if (event.origin !== 'https://player.twitch.tv') return;
+                    
+                    // Traiter les événements Twitch si nécessaire
+                    if (event.data && event.data.namespace === 'twitch-embed') {
+                        console.log('Twitch event:', event.data);
+                    }
+                });
+            }
+
+            sendCommandToPlayer(username, command) {
+                const iframe = this.twitchPlayers.get(username);
+                if (!iframe || !iframe.contentWindow) return;
+
+                try {
+                    iframe.contentWindow.postMessage({
+                        eventName: command,
+                        params: {}
+                    }, 'https://player.twitch.tv');
+                } catch (error) {
+                    console.log(`Commande ${command} envoyée à ${username} via méthode alternative`);
+                    // Méthode alternative : simuler les touches
+                    this.simulateKeyPress(iframe, command);
+                }
+            }
+
+            simulateKeyPress(iframe, command) {
+                // Fallback : créer un événement de clavier
+                const keyCode = command === 'play' ? 32 : 32; // Espace pour play/pause
+                
+                try {
+                    iframe.focus();
+                    const event = new KeyboardEvent('keydown', {
+                        key: ' ',
+                        code: 'Space',
+                        keyCode: keyCode,
+                        which: keyCode,
+                        bubbles: true
+                    });
+                    iframe.dispatchEvent(event);
+                } catch (error) {
+                    console.log('Impossible de simuler la touche');
+                }
             }
 
             removeStream(username) {
@@ -557,6 +614,7 @@
                 if (!data) return;
                 document.getElementById(data.id).remove();
                 this.streams.delete(username);
+                this.twitchPlayers.delete(username);
                 if (this.highlighted === username) this.highlighted = null;
                 if (this.audioStream === username) this.audioStream = null;
                 this.updateLayout();
@@ -584,7 +642,12 @@
                 for (const [u, data] of this.streams.entries()) {
                     const iframe = document.querySelector(`#${data.id} iframe`);
                     if (iframe) {
-                        iframe.src = `https://player.twitch.tv/?channel=${u}&parent=${parent}&muted=${u !== username}`;
+                        const newSrc = `https://player.twitch.tv/?channel=${u}&parent=${parent}&muted=${u !== username}`;
+                        if (iframe.src !== newSrc) {
+                            iframe.src = newSrc;
+                            // Réinitialiser le player après changement d'URL
+                            setTimeout(() => this.initTwitchPlayer(u, data.id), 1000);
+                        }
                     }
                 }
                 this.audioStream = username;
@@ -609,15 +672,16 @@
             }
 
             playAllStreams() {
-                const parent = window.location.hostname || window.location.host || 'localhost';
                 for (const [username, data] of this.streams.entries()) {
-                    const wrapper = document.getElementById(data.id);
-                    const iframe = document.querySelector(`#${data.id} iframe`);
-                    if (iframe && wrapper) {
-                        const isMuted = this.audioStream !== username;
-                        iframe.src = `https://player.twitch.tv/?channel=${username}&parent=${parent}&muted=${isMuted}`;
-                        wrapper.classList.remove("stream-paused");
-                        data.paused = false;
+                    if (!data.hidden) {
+                        // Essayer d'envoyer la commande play au player
+                        this.sendCommandToPlayer(username, 'play');
+                        
+                        const wrapper = document.getElementById(data.id);
+                        if (wrapper) {
+                            wrapper.classList.remove("stream-paused");
+                            data.paused = false;
+                        }
                     }
                 }
                 this.allPaused = false;
@@ -626,12 +690,15 @@
 
             pauseAllStreams() {
                 for (const [username, data] of this.streams.entries()) {
-                    const wrapper = document.getElementById(data.id);
-                    const iframe = document.querySelector(`#${data.id} iframe`);
-                    if (iframe && wrapper) {
-                        iframe.src = 'about:blank';
-                        wrapper.classList.add("stream-paused");
-                        data.paused = true;
+                    if (!data.hidden) {
+                        // Essayer d'envoyer la commande pause au player
+                        this.sendCommandToPlayer(username, 'pause');
+                        
+                        const wrapper = document.getElementById(data.id);
+                        if (wrapper) {
+                            wrapper.classList.add("stream-paused");
+                            data.paused = true;
+                        }
                     }
                 }
                 this.allPaused = true;
@@ -747,7 +814,6 @@
 
         window.onload = function() {
             document.getElementById("streamInput").focus();
-            
         };
     </script>
 </body>
