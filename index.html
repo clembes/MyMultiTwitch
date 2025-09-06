@@ -271,6 +271,61 @@
             box-shadow: 0 6px 20px rgba(145, 70, 255, 0.4);
         }
         
+        /* Nouveaux styles pour les boutons généraux */
+        .general-controls {
+            margin-bottom: 20px;
+            padding-bottom: 15px;
+            border-bottom: 1px solid rgba(145, 70, 255, 0.3);
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        
+        .general-controls h4 {
+            margin: 0 0 10px 0;
+            color: #c77dff;
+            font-size: 14px;
+            font-weight: 600;
+            text-align: center;
+        }
+        
+        .control-buttons {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+        }
+        
+        .btn-control {
+            padding: 10px 12px;
+            background: rgba(70, 70, 105, 0.8);
+            border: none;
+            color: #fff;
+            cursor: pointer;
+            border-radius: 10px;
+            font-weight: 500;
+            font-size: 13px;
+            transition: all 0.3s ease;
+            backdrop-filter: blur(5px);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 5px;
+        }
+        
+        .btn-control:hover {
+            background: linear-gradient(45deg, #9146ff, #7c3aed);
+            transform: translateY(-1px);
+            box-shadow: 0 4px 15px rgba(145, 70, 255, 0.3);
+        }
+        
+        .btn-control.active {
+            background: linear-gradient(45deg, #dc3545, #c82333);
+        }
+        
+        .btn-control.active:hover {
+            background: linear-gradient(45deg, #c82333, #bd2130);
+        }
+        
         .stream-item {
             display: flex;
             justify-content: space-between;
@@ -411,6 +466,17 @@
                 <button class="sidebar-toggle" onclick="toggleSidebar()" title="Replier/Déplier">◀</button>
             </div>
             <div class="sidebar-content">
+                <div class="general-controls">
+                    <h4>🎬 Contrôles généraux</h4>
+                    <div class="control-buttons">
+                        <button class="btn-control" onclick="multi.pauseAllStreams()" id="pauseBtn">
+                            ⏸️ Pause
+                        </button>
+                        <button class="btn-control" onclick="multi.playAllStreams()" id="playBtn">
+                            ▶️ Play
+                        </button>
+                    </div>
+                </div>
                 <div class="sidebar-controls">
                     <input type="text" id="streamInput" placeholder="Nom du streamer..." onkeypress="handleKeyPress(event)">
                     <button class="btn" onclick="addStreamFromInput()">Ajouter</button>
@@ -430,6 +496,7 @@
                 this.audioStream = null;
                 this.counter = 0;
                 this.sidebarCollapsed = false;
+                this.allPaused = false;
             }
 
             addStream(username) {
@@ -442,7 +509,7 @@
                 }
 
                 const id = `stream-${this.counter++}`;
-                this.streams.set(username, { id, username, hidden: false });
+                this.streams.set(username, { id, username, hidden: false, paused: this.allPaused });
                 this.createStreamElement(username, id);
                 this.updateLayout();
                 this.updateSidebar();
@@ -456,7 +523,8 @@
                 wrapper.id = id;
                 
                 const parent = window.location.hostname || window.location.host || 'localhost';
-                const src = `https://player.twitch.tv/?channel=${username}&parent=${parent}&muted=true`;
+                const autoplay = this.allPaused ? 'false' : 'true';
+                const src = `https://player.twitch.tv/?channel=${username}&parent=${parent}&muted=true&autoplay=${autoplay}`;
                 
                 wrapper.innerHTML = `<iframe src="${src}" allowfullscreen></iframe>`;
                 container.appendChild(wrapper);
@@ -494,7 +562,8 @@
                 for (const [u, data] of this.streams.entries()) {
                     const iframe = document.querySelector(`#${data.id} iframe`);
                     if (iframe) {
-                        iframe.src = `https://player.twitch.tv/?channel=${u}&parent=${parent}&muted=${u !== username}`;
+                        const autoplay = data.paused ? 'false' : 'true';
+                        iframe.src = `https://player.twitch.tv/?channel=${u}&parent=${parent}&muted=${u !== username}&autoplay=${autoplay}`;
                     }
                 }
                 this.audioStream = username;
@@ -516,6 +585,59 @@
                 }
                 this.updateSidebar();
                 this.updateLayout();
+            }
+
+            pauseAllStreams() {
+                if (this.streams.size === 0) {
+                    this.showNotification("⚠️ Aucun stream à contrôler");
+                    return;
+                }
+
+                const parent = window.location.hostname || window.location.host || 'localhost';
+                for (const [username, data] of this.streams.entries()) {
+                    const iframe = document.querySelector(`#${data.id} iframe`);
+                    if (iframe) {
+                        const muted = this.audioStream !== username;
+                        iframe.src = `https://player.twitch.tv/?channel=${username}&parent=${parent}&muted=${muted}&autoplay=false`;
+                        data.paused = true;
+                    }
+                }
+                this.allPaused = true;
+                this.updateControlButtons();
+                this.showNotification("⏸️ Tous les streams en pause");
+            }
+
+            playAllStreams() {
+                if (this.streams.size === 0) {
+                    this.showNotification("⚠️ Aucun stream à contrôler");
+                    return;
+                }
+
+                const parent = window.location.hostname || window.location.host || 'localhost';
+                for (const [username, data] of this.streams.entries()) {
+                    const iframe = document.querySelector(`#${data.id} iframe`);
+                    if (iframe) {
+                        const muted = this.audioStream !== username;
+                        iframe.src = `https://player.twitch.tv/?channel=${username}&parent=${parent}&muted=${muted}&autoplay=true`;
+                        data.paused = false;
+                    }
+                }
+                this.allPaused = false;
+                this.updateControlButtons();
+                this.showNotification("▶️ Tous les streams en lecture");
+            }
+
+            updateControlButtons() {
+                const pauseBtn = document.getElementById('pauseBtn');
+                const playBtn = document.getElementById('playBtn');
+                
+                if (this.allPaused) {
+                    pauseBtn.classList.add('active');
+                    playBtn.classList.remove('active');
+                } else {
+                    pauseBtn.classList.remove('active');
+                    playBtn.classList.add('active');
+                }
             }
 
             updateLayout() {
@@ -627,7 +749,7 @@
 
         window.onload = function() {
             document.getElementById("streamInput").focus();
-            
+            multi.updateControlButtons();
         };
     </script>
 </body>
