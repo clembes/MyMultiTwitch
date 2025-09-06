@@ -659,6 +659,7 @@
         <h1>🔴 Multi-Stream Viewer</h1>
         <div class="header-controls">
             <span class="stream-counter" id="streamCounter">0 streams</span>
+            <button class="control-btn" onclick="shareCurrentURL()" title="Partager cette URL">🔗 Partager</button>
             <button class="control-btn" onclick="multi.playAllStreams()">▶️ Play All</button>
             <button class="control-btn pause" onclick="multi.pauseAllStreams()">⏸️ Pause All</button>
             <button class="toggle-sidebar" onclick="toggleSidebar()">📋 Panneau</button>
@@ -691,6 +692,7 @@
     <div class="context-menu" id="contextMenu">
         <div class="context-menu-item" onclick="multi.playAllStreams()">▶️ Lancer tous</div>
         <div class="context-menu-item" onclick="multi.pauseAllStreams()">⏸️ Mettre en pause</div>
+        <div class="context-menu-item" onclick="shareCurrentURL()">🔗 Partager URL</div>
         <div class="context-menu-item" onclick="multi.clearSession()">🗑️ Effacer session</div>
     </div>
 
@@ -698,6 +700,7 @@
         <strong>Raccourcis clavier :</strong><br>
         <kbd>Espace</kbd> - Play/Pause tous<br>
         <kbd>S</kbd> - Masquer/Afficher sidebar<br>
+        <kbd>Ctrl+C</kbd> - Partager URL<br>
         <kbd>?</kbd> - Afficher/Masquer cette aide<br>
         <kbd>Esc</kbd> - Supprimer le dernier stream
     </div>
@@ -712,10 +715,67 @@
                 this.sidebarCollapsed = false;
                 this.allPaused = false;
                 this.twitchPlayers = new Map();
-                this.maxStreams = 9; // Limite pour les performances
-                this.retryAttempts = new Map(); // Compteur de tentatives
-                this.streamStatus = new Map(); // Statut des streams
-                this.loadSession();
+                this.maxStreams = 9;
+                this.retryAttempts = new Map();
+                this.streamStatus = new Map();
+                
+                // Charger les streams depuis l'URL au démarrage
+                this.loadFromURL();
+            }
+
+            // Nouvelle méthode pour charger les streams depuis l'URL
+            loadFromURL() {
+                const path = window.location.pathname;
+                const streamNames = path.split('/').filter(segment => segment.length > 0);
+                
+                if (streamNames.length > 0) {
+                    this.showNotification(`🔗 Chargement de ${streamNames.length} stream(s) depuis l'URL`);
+                    
+                    // Charger chaque stream avec un délai pour éviter la surcharge
+                    streamNames.forEach((username, index) => {
+                        setTimeout(() => {
+                            this.addStreamFromURL(username);
+                        }, index * 500); // 500ms de délai entre chaque stream
+                    });
+                } else {
+                    // Si pas de streams dans l'URL, essayer de charger depuis localStorage
+                    this.loadSession();
+                }
+            }
+
+            // Méthode spéciale pour ajouter un stream depuis l'URL (sans mise à jour de l'URL)
+            async addStreamFromURL(username) {
+                username = username.trim().toLowerCase();
+                
+                if (!this.validateUsername(username)) {
+                    console.log(`Nom d'utilisateur invalide dans l'URL : ${username}`);
+                    return;
+                }
+                
+                if (this.streams.has(username)) {
+                    return;
+                }
+                
+                const id = `stream-${this.counter++}`;
+                this.streams.set(username, { id, username, hidden: false, paused: false });
+                this.streamStatus.set(username, 'loading');
+                this.createStreamElement(username, id);
+                this.updateLayout();
+                this.updateSidebar();
+                
+                // Lancement automatique après un délai
+                setTimeout(() => this.forcePlay(username), 1500);
+            }
+
+            // Nouvelle méthode pour mettre à jour l'URL
+            updateURL() {
+                const streamNames = Array.from(this.streams.keys());
+                const newPath = streamNames.length > 0 ? '/' + streamNames.join('/') : '/';
+                
+                // Utiliser pushState pour mettre à jour l'URL sans recharger la page
+                if (window.location.pathname !== newPath) {
+                    window.history.pushState({ streams: streamNames }, '', newPath);
+                }
             }
 
             async addStream(username) {
@@ -751,6 +811,9 @@
                 this.updateLayout();
                 this.updateSidebar();
                 this.showNotification(`✅ Ajouté : ${username}`);
+                
+                // Mettre à jour l'URL
+                this.updateURL();
                 
                 // Lancement automatique après un délai
                 setTimeout(() => this.forcePlay(username), 1500);
@@ -953,11 +1016,35 @@
                 document.getElementById(data.id).remove();
                 this.streams.delete(username);
                 this.twitchPlayers.delete(username);
-                if (this.highlighted === username) this.highlighted = null;
+                if this.highlighted === username) this.highlighted = null;
                 if (this.audioStream === username) this.audioStream = null;
                 this.updateLayout();
                 this.updateSidebar();
                 this.showNotification(`🗑️ Supprimé : ${username}`);
+                
+                // Mettre à jour l'URL
+                this.updateURL();
+                this.saveSession();
+            }
+
+            // Nouvelle méthode pour effacer tous les streams
+            clearAllStreams() {
+                const streamNames = Array.from(this.streams.keys());
+                streamNames.forEach(username => {
+                    const data = this.streams.get(username);
+                    if (data) {
+                        document.getElementById(data.id).remove();
+                    }
+                });
+                
+                this.streams.clear();
+                this.twitchPlayers.clear();
+                this.highlighted = null;
+                this.audioStream = null;
+                this.updateLayout();
+                this.updateSidebar();
+                this.updateURL();
+                this.showNotification(`🗑️ Tous les streams supprimés`);
                 this.saveSession();
             }
 
@@ -1112,135 +1199,64 @@
                     if (!saved) return;
                     
                     const sessionData = JSON.parse(saved);
-                    this.streams.clear();
-                    this.twitchPlayers.clear();
-                    this.counter = 0;
                     
-                    if (sessionData.streams?.length > 0) {
+                    // Restaurer les streams uniquement si l'URL est vide
+                    if (window.location.pathname === '/' && sessionData.streams?.length > 0) {
                         sessionData.streams.forEach(streamData => {
-                            this.streams.set(streamData.username, {
-                                id: `stream-${this.counter++}`,
-                                username: streamData.username,
-                                hidden: streamData.hidden,
-                                paused: streamData.paused
-                            });
+                            setTimeout(() => {
+                                this.addStream(streamData.username);
+                                if (streamData.hidden) {
+                                    setTimeout(() => this.toggleVisibility(streamData.username), 1000);
+                                }
+                            }, 100);
                         });
-                    }
-                    
-                    this.highlighted = sessionData.highlighted || null;
-                    this.audioStream = sessionData.audioStream || null;
-                    this.sidebarCollapsed = sessionData.sidebarCollapsed || false;
-                    this.updateSidebar();
-                    this.updateLayout();
-                    
-                    // Restaurer les états
-                    sessionData.streams?.forEach(streamData => {
-                        setTimeout(() => this.toggleVisibility(streamData.username), 1000);
-                        if (streamData.hidden) {
-                            this.addStream(streamData.username);
+                        
+                        // Restaurer les états
+                        if (sessionData.highlighted) {
+                            setTimeout(() => this.highlightStream(sessionData.highlighted), 1500);
                         }
-                    });
-                    
-                    setTimeout(() => this.setAudioStream(sessionData.audioStream), 2000);
-                    setTimeout(() => this.highlightStream(sessionData.highlighted), 1500);
-                    
-                    this.showNotification('📁 Session restaurée');
+                        if (sessionData.audioStream) {
+                            setTimeout(() => this.setAudioStream(sessionData.audioStream), 2000);
+                        }
+                        if (sessionData.sidebarCollapsed) {
+                            setTimeout(() => toggleSidebar(), 500);
+                        }
+                        
+                        this.showNotification('📁 Session restaurée depuis localStorage');
+                    }
                 } catch (error) {
                     console.error('Erreur lors du chargement de la session:', error);
                 }
+            }
+
+            // Modifier clearSession pour inclure l'URL
+            clearSession() {
+                localStorage.removeItem('multiStreamSession');
+                this.clearAllStreams();
+                this.showNotification('🗑️ Session et URL effacées');
             }
         }
 
         const multi = new MultiStreamViewer();
 
-        function addStreamFromInput() {
-            const input = document.getElementById("streamInput");
-            if (input.value.trim()) {
-                multi.addStream(input.value);
-                input.value = "";
-            }
-        }
-
-        function handleKeyPress(event) {
-            const input = document.getElementById("streamInput");
-            if (event.key === 'Enter') {
-                event.preventDefault();
-                addStreamFromInput();
-            } else if (event.key === 'f') {
-                event.preventDefault();
-                input.focus();
-            }
-        }
-
-        function toggleSidebar() {
-            const sidebar = document.getElementById("sidebar");
-            const streamsContainer = document.getElementById("streamsContainer");
-            const toggleBtn = sidebar.querySelector(".sidebar-toggle");
-            multi.sidebarCollapsed = !multi.sidebarCollapsed;
-            
-            if (!multi.sidebarCollapsed) {
-                toggleBtn.title = "Fermer le panneau";
-                toggleBtn.innerHTML = "◀";
-                streamsContainer.classList.remove("sidebar-collapsed");
-                sidebar.classList.remove("collapsed");
-            } else {
-                toggleBtn.title = "Ouvrir le panneau";
-                toggleBtn.innerHTML = "▶";
-                streamsContainer.classList.add("sidebar-collapsed");
-                sidebar.classList.add("collapsed");
-            }
-            
-            setTimeout(() => {
-                let externalToggle = document.getElementById("externalToggle");
-                if (!externalToggle) {
-                    externalToggle = document.createElement("button");
-                    externalToggle.onclick = toggleSidebar;
-                    externalToggle.title = "Ouvrir le panneau";
-                    externalToggle.innerHTML = "◀";
-                    externalToggle.className = "sidebar-toggle-external";
-                    externalToggle.id = "externalToggle";
-                    document.body.appendChild(externalToggle);
+        // Gérer les changements d'URL avec le bouton précédent/suivant du navigateur
+        window.addEventListener('popstate', function(event) {
+            // Effacer les streams actuels
+            const currentStreams = Array.from(multi.streams.keys());
+            currentStreams.forEach(username => {
+                const data = multi.streams.get(username);
+                if (data) {
+                    document.getElementById(data.id).remove();
                 }
-                
-                externalToggle.classList.toggle("visible", multi.sidebarCollapsed);
-            }, 300);
-        }
-
-        // Gestion des raccourcis clavier
-        document.addEventListener('keydown', function(event) {
-            // Ignorer si on tape dans un input
-            if (event.target.tagName === 'INPUT') return;
+            });
             
-            switch(event.key.toLowerCase()) {
-                case ' ': // Espace
-                    event.preventDefault();
-                    if (multi.allPaused) {
-                        multi.playAllStreams();
-                    } else {
-                        multi.pauseAllStreams();
-                    }
-                    break;
-                    
-                case 's':
-                    event.preventDefault();
-                    toggleSidebar();
-                    break;
-                    
-                case '?':
-                    event.preventDefault();
-                    toggleShortcutsHelp();
-                    break;
-                    
-                case 'escape':
-                    event.preventDefault();
-                    removeLastStream();
-                    break;
-                    
-                case 'f':
-                    event.preventDefault();
-                    document.getElementById("streamInput").focus();
-                    break;
-            }
+            // Charger les streams de l'URL
+            const streamNames = event.state?.streams || [];
+            streamNames.forEach(username => {
+                setTimeout(() => {
+                    multi.addStreamFromURL(username);
+                }, 100);
+            });
         });
         
         function toggleShortcutsHelp() {
