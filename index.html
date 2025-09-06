@@ -538,12 +538,127 @@
         .sidebar-toggle-external.visible {
             display: block;
         }
+        
+        .stream-loading {
+            position: relative;
+            opacity: 0.7;
+        }
+        
+        .stream-loading::after {
+            content: "🔄";
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 24px;
+            animation: spin 1s linear infinite;
+        }
+        
+        @keyframes spin {
+            0% { transform: translate(-50%, -50%) rotate(0deg); }
+            100% { transform: translate(-50%, -50%) rotate(360deg); }
+        }
+        
+        .stream-error {
+            border-color: rgba(231, 76, 60, 0.7);
+            background: rgba(231, 76, 60, 0.1);
+        }
+        
+        .stream-success {
+            border-color: rgba(76, 231, 60, 0.7);
+            background: rgba(76, 231, 60, 0.1);
+        }
+        
+        /* Indicateurs de statut pour les streams */
+        .stream-loading::before {
+            content: "⏳";
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 24px;
+            z-index: 5;
+            animation: spin 1s linear infinite;
+        }
+        
+        .stream-error::before {
+            content: "❌";
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 24px;
+            z-index: 5;
+        }
+        
+        .stream-success::before {
+            content: "✅";
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            font-size: 16px;
+            z-index: 5;
+            opacity: 0.7;
+        }
+        
+        /* Menu contextuel */
+        .context-menu {
+            position: fixed;
+            background: rgba(24, 24, 35, 0.95);
+            backdrop-filter: blur(15px);
+            border: 1px solid rgba(145, 70, 255, 0.3);
+            border-radius: 12px;
+            padding: 10px 0;
+            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.4);
+            z-index: 1000;
+            display: none;
+        }
+        
+        .context-menu-item {
+            padding: 10px 20px;
+            cursor: pointer;
+            color: #e8e8f0;
+            font-size: 14px;
+            transition: background 0.2s ease;
+        }
+        
+        .context-menu-item:hover {
+            background: rgba(145, 70, 255, 0.2);
+        }
+        
+        /* Raccourcis clavier */
+        .shortcuts-help {
+            position: fixed;
+            bottom: 20px;
+            left: 20px;
+            background: rgba(24, 24, 35, 0.9);
+            padding: 15px;
+            border-radius: 12px;
+            border: 1px solid rgba(145, 70, 255, 0.3);
+            display: none;
+            z-index: 1000;
+        }
+        
+        .shortcuts-help.visible {
+            display: block;
+        }
+        
+        /* Compteur de streams */
+        .stream-counter {
+            background: linear-gradient(45deg, #9146ff, #7c3aed);
+            color: white;
+            padding: 5px 10px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+        }
     </style>
 </head>
 <body>
     <div class="header">
         <h1>🔴 Multi-Stream Viewer</h1>
         <div class="header-controls">
+            <span class="stream-counter" id="streamCounter">0 streams</span>
             <button class="control-btn" onclick="multi.playAllStreams()">▶️ Play All</button>
             <button class="control-btn pause" onclick="multi.pauseAllStreams()">⏸️ Pause All</button>
             <button class="toggle-sidebar" onclick="toggleSidebar()">📋 Panneau</button>
@@ -573,6 +688,20 @@
 
     <div class="notification" id="notification"></div>
 
+    <div class="context-menu" id="contextMenu">
+        <div class="context-menu-item" onclick="multi.playAllStreams()">▶️ Lancer tous</div>
+        <div class="context-menu-item" onclick="multi.pauseAllStreams()">⏸️ Mettre en pause</div>
+        <div class="context-menu-item" onclick="multi.clearSession()">🗑️ Effacer session</div>
+    </div>
+
+    <div class="shortcuts-help" id="shortcutsHelp">
+        <strong>Raccourcis clavier :</strong><br>
+        <kbd>Espace</kbd> - Play/Pause tous<br>
+        <kbd>S</kbd> - Masquer/Afficher sidebar<br>
+        <kbd>?</kbd> - Afficher/Masquer cette aide<br>
+        <kbd>Esc</kbd> - Supprimer le dernier stream
+    </div>
+
     <script>
         class MultiStreamViewer {
             constructor() {
@@ -583,27 +712,68 @@
                 this.sidebarCollapsed = false;
                 this.allPaused = false;
                 this.twitchPlayers = new Map();
+                this.maxStreams = 9; // Limite pour les performances
+                this.retryAttempts = new Map(); // Compteur de tentatives
+                this.streamStatus = new Map(); // Statut des streams
+                this.loadSession();
             }
 
-            addStream(username) {
+            async addStream(username) {
                 username = username.trim().toLowerCase();
-                if (!username || this.streams.has(username)) {
-                    if (this.streams.has(username)) {
-                        this.showNotification(`${username} est déjà ajouté`);
-                    }
+                
+                // Validation améliorée
+                if (!this.validateUsername(username)) {
+                    this.showNotification(`❌ Nom d'utilisateur invalide : ${username}`);
+                    return;
+                }
+                
+                if (this.streams.has(username)) {
+                    this.showNotification(`⚠️ ${username} est déjà ajouté`);
+                    return;
+                }
+                
+                if (this.streams.size >= this.maxStreams) {
+                    this.showNotification(`⚠️ Limite de ${this.maxStreams} streams atteinte`);
+                    return;
+                }
+
+                // Vérifier si le streamer existe
+                const exists = await this.checkStreamerExists(username);
+                if (!exists) {
+                    this.showNotification(`❌ Streamer "${username}" introuvable`);
                     return;
                 }
 
                 const id = `stream-${this.counter++}`;
                 this.streams.set(username, { id, username, hidden: false, paused: false });
+                this.streamStatus.set(username, 'loading');
                 this.createStreamElement(username, id);
                 this.updateLayout();
                 this.updateSidebar();
                 this.showNotification(`✅ Ajouté : ${username}`);
                 
-                // Afficher le bouton d'autoplay si c'est le premier stream
-                if (this.streams.size === 1) {
-                    setTimeout(() => this.enableAutoplay(), 2000);
+                // Lancement automatique après un délai
+                setTimeout(() => this.forcePlay(username), 1500);
+                this.saveSession();
+            }
+
+            validateUsername(username) {
+                // Validation Twitch username (3-25 caractères, alphanumériques + underscore)
+                const twitchUsernameRegex = /^[a-zA-Z0-9_]{3,25}$/;
+                return twitchUsernameRegex.test(username);
+            }
+
+            async checkStreamerExists(username) {
+                try {
+                    // Vérification basique via une requête HEAD
+                    const response = await fetch(`https://www.twitch.tv/${username}`, { 
+                        method: 'HEAD',
+                        mode: 'no-cors'
+                    });
+                    return true; // Si pas d'erreur, on assume que ça existe
+                } catch (error) {
+                    console.log(`Erreur lors de la vérification de ${username}:`, error);
+                    return true; // On laisse passer en cas d'erreur CORS
                 }
             }
 
@@ -645,18 +815,57 @@
                 if (!iframe) return;
 
                 this.twitchPlayers.set(username, iframe);
+                
+                // Timeout pour détecter les échecs de chargement
+                const loadTimeout = setTimeout(() => {
+                    console.log(`Timeout de chargement pour ${username}`);
+                    this.handleStreamError(username, 'Timeout de chargement');
+                }, 15000);
 
                 iframe.onload = () => {
+                    clearTimeout(loadTimeout);
                     console.log(`Player ${username} chargé`);
+                    this.streamStatus.set(username, 'loaded');
+                    this.updateStreamIndicator(username, 'success');
+                    
                     setTimeout(() => {
                         this.attemptAutoplay(iframe, username);
-                    }, 1500);
+                    }, 1000);
                 };
 
                 iframe.onerror = () => {
-                    console.log(`Erreur de chargement pour ${username}`);
-                    this.showNotification(`❌ Erreur de chargement : ${username}`);
+                    clearTimeout(loadTimeout);
+                    this.handleStreamError(username, 'Erreur de chargement');
                 };
+            }
+
+            handleStreamError(username, errorMsg) {
+                console.log(`${errorMsg} pour ${username}`);
+                this.streamStatus.set(username, 'error');
+                this.updateStreamIndicator(username, 'error');
+                
+                const attempts = this.retryAttempts.get(username) || 0;
+                if (attempts < 3) {
+                    this.retryAttempts.set(username, attempts + 1);
+                    this.showNotification(`🔄 Tentative ${attempts + 1}/3 pour ${username}`);
+                    setTimeout(() => this.forcePlay(username), 5000);
+                } else {
+                    this.showNotification(`❌ ${errorMsg} : ${username}`);
+                }
+            }
+
+            updateStreamIndicator(username, status) {
+                const data = this.streams.get(username);
+                if (!data) return;
+                
+                const wrapper = document.getElementById(data.id);
+                if (!wrapper) return;
+                
+                // Retirer les anciennes classes de statut
+                wrapper.classList.remove('stream-loading', 'stream-error', 'stream-success');
+                
+                // Ajouter la nouvelle classe
+                wrapper.classList.add(`stream-${status}`);
             }
 
             attemptAutoplay(iframe, username) {
@@ -749,6 +958,7 @@
                 this.updateLayout();
                 this.updateSidebar();
                 this.showNotification(`🗑️ Supprimé : ${username}`);
+                this.saveSession();
             }
 
             highlightStream(username) {
@@ -867,6 +1077,11 @@
                     `;
                     list.appendChild(div);
                 }
+                
+                // Mettre à jour le compteur
+                const counter = document.getElementById("streamCounter");
+                const visibleCount = [...this.streams.values()].filter(s => !s.hidden).length;
+                counter.textContent = `${this.streams.size} stream${this.streams.size > 1 ? 's' : ''} ${visibleCount !== this.streams.size ? `(${visibleCount} visible${visibleCount > 1 ? 's' : ''})` : ''}`;
             }
 
             showNotification(msg) {
@@ -875,50 +1090,69 @@
                 notif.style.display = "block";
                 setTimeout(() => notif.style.display = "none", 3000);
             }
-        }
 
-        const multi = new MultiStreamViewer();
-        
-        function toggleSidebar() {
-            const sidebar = document.getElementById("sidebar");
-            const streamsContainer = document.getElementById("streamsContainer");
-            const toggleBtn = sidebar.querySelector(".sidebar-toggle");
-            let externalToggle = document.getElementById("externalToggle");
-            
-            multi.sidebarCollapsed = !multi.sidebarCollapsed;
-            
-            if (multi.sidebarCollapsed) {
-                sidebar.classList.add("collapsed");
-                streamsContainer.classList.add("sidebar-collapsed");
-                toggleBtn.innerHTML = "▶";
-                toggleBtn.title = "Ouvrir le panneau";
+            saveSession() {
+                const sessionData = {
+                    streams: Array.from(this.streams.entries()).map(([username, data]) => ({
+                        username,
+                        hidden: data.hidden,
+                        paused: data.paused
+                    })),
+                    highlighted: this.highlighted,
+                    audioStream: this.audioStream,
+                    sidebarCollapsed: this.sidebarCollapsed
+                };
                 
-                if (!externalToggle) {
-                    externalToggle = document.createElement("button");
-                    externalToggle.id = "externalToggle";
-                    externalToggle.className = "sidebar-toggle-external";
-                    externalToggle.innerHTML = "◀";
-                    externalToggle.title = "Ouvrir le panneau";
-                    externalToggle.onclick = toggleSidebar;
-                    document.body.appendChild(externalToggle);
-                }
-                
-                setTimeout(() => {
-                    externalToggle.classList.add("visible");
-                }, 300);
-                
-            } else {
-                sidebar.classList.remove("collapsed");
-                streamsContainer.classList.remove("sidebar-collapsed");
-                toggleBtn.innerHTML = "◀";
-                toggleBtn.title = "Fermer le panneau";
-                
-                if (externalToggle) {
-                    externalToggle.classList.remove("visible");
+                localStorage.setItem('multiStreamSession', JSON.stringify(sessionData));
+            }
+
+            loadSession() {
+                try {
+                    const saved = localStorage.getItem('multiStreamSession');
+                    if (!saved) return;
+                    
+                    const sessionData = JSON.parse(saved);
+                    this.streams.clear();
+                    this.twitchPlayers.clear();
+                    this.counter = 0;
+                    
+                    if (sessionData.streams?.length > 0) {
+                        sessionData.streams.forEach(streamData => {
+                            this.streams.set(streamData.username, {
+                                id: `stream-${this.counter++}`,
+                                username: streamData.username,
+                                hidden: streamData.hidden,
+                                paused: streamData.paused
+                            });
+                        });
+                    }
+                    
+                    this.highlighted = sessionData.highlighted || null;
+                    this.audioStream = sessionData.audioStream || null;
+                    this.sidebarCollapsed = sessionData.sidebarCollapsed || false;
+                    this.updateSidebar();
+                    this.updateLayout();
+                    
+                    // Restaurer les états
+                    sessionData.streams?.forEach(streamData => {
+                        setTimeout(() => this.toggleVisibility(streamData.username), 1000);
+                        if (streamData.hidden) {
+                            this.addStream(streamData.username);
+                        }
+                    });
+                    
+                    setTimeout(() => this.setAudioStream(sessionData.audioStream), 2000);
+                    setTimeout(() => this.highlightStream(sessionData.highlighted), 1500);
+                    
+                    this.showNotification('📁 Session restaurée');
+                } catch (error) {
+                    console.error('Erreur lors du chargement de la session:', error);
                 }
             }
         }
-        
+
+        const multi = new MultiStreamViewer();
+
         function addStreamFromInput() {
             const input = document.getElementById("streamInput");
             if (input.value.trim()) {
@@ -928,13 +1162,111 @@
         }
 
         function handleKeyPress(event) {
+            const input = document.getElementById("streamInput");
             if (event.key === 'Enter') {
+                event.preventDefault();
                 addStreamFromInput();
+            } else if (event.key === 'f') {
+                event.preventDefault();
+                input.focus();
             }
         }
 
-        window.addEventListener('load', function() {
-            document.getElementById("streamInput").focus();
+        function toggleSidebar() {
+            const sidebar = document.getElementById("sidebar");
+            const streamsContainer = document.getElementById("streamsContainer");
+            const toggleBtn = sidebar.querySelector(".sidebar-toggle");
+            multi.sidebarCollapsed = !multi.sidebarCollapsed;
+            
+            if (!multi.sidebarCollapsed) {
+                toggleBtn.title = "Fermer le panneau";
+                toggleBtn.innerHTML = "◀";
+                streamsContainer.classList.remove("sidebar-collapsed");
+                sidebar.classList.remove("collapsed");
+            } else {
+                toggleBtn.title = "Ouvrir le panneau";
+                toggleBtn.innerHTML = "▶";
+                streamsContainer.classList.add("sidebar-collapsed");
+                sidebar.classList.add("collapsed");
+            }
+            
+            setTimeout(() => {
+                let externalToggle = document.getElementById("externalToggle");
+                if (!externalToggle) {
+                    externalToggle = document.createElement("button");
+                    externalToggle.onclick = toggleSidebar;
+                    externalToggle.title = "Ouvrir le panneau";
+                    externalToggle.innerHTML = "◀";
+                    externalToggle.className = "sidebar-toggle-external";
+                    externalToggle.id = "externalToggle";
+                    document.body.appendChild(externalToggle);
+                }
+                
+                externalToggle.classList.toggle("visible", multi.sidebarCollapsed);
+            }, 300);
+        }
+
+        // Gestion des raccourcis clavier
+        document.addEventListener('keydown', function(event) {
+            // Ignorer si on tape dans un input
+            if (event.target.tagName === 'INPUT') return;
+            
+            switch(event.key.toLowerCase()) {
+                case ' ': // Espace
+                    event.preventDefault();
+                    if (multi.allPaused) {
+                        multi.playAllStreams();
+                    } else {
+                        multi.pauseAllStreams();
+                    }
+                    break;
+                    
+                case 's':
+                    event.preventDefault();
+                    toggleSidebar();
+                    break;
+                    
+                case '?':
+                    event.preventDefault();
+                    toggleShortcutsHelp();
+                    break;
+                    
+                case 'escape':
+                    event.preventDefault();
+                    removeLastStream();
+                    break;
+                    
+                case 'f':
+                    event.preventDefault();
+                    document.getElementById("streamInput").focus();
+                    break;
+            }
+        });
+        
+        function toggleShortcutsHelp() {
+            const help = document.getElementById("shortcutsHelp");
+            help.classList.toggle("visible");
+        }
+        
+        function removeLastStream() {
+            const streams = Array.from(multi.streams.keys());
+            if (streams.length > 0) {
+                const lastStream = streams[streams.length - 1];
+                multi.removeStream(lastStream);
+            }
+        }
+        
+        // Menu contextuel
+        document.addEventListener('contextmenu', function(event) {
+            event.preventDefault();
+            const contextMenu = document.getElementById("contextMenu");
+            contextMenu.style.left = event.pageX + 'px';
+            contextMenu.style.top = event.pageY + 'px';
+            contextMenu.style.display = 'block';
+        });
+        
+        document.addEventListener('click', function() {
+            document.getElementById("contextMenu").style.display = 'none';
         });
     </script>
 </body>
